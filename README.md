@@ -43,4 +43,4 @@ artifacts/               Stage outputs and machine-readable result tables
 
 ## References
 
-The report cites work on forecast combinations, covariance shrinkage, EWMA risk forecasts, constrained MPC, robust MPC, worst-case portfolio risk, and multi-period portfolio MPC. The README structure follows the practical documentation principles described in the [Art of README](https://github.com/hackergrrl/art-of-readme) and the Russian overview [Как писать README](https://habr.com/ru/articles/810537/).
+The report cites work on forecast combinations, covariance shrinkage, EWMA risk forecasts, constrained MPC, robust MPC, worst-case portfolio risk, and multi-period portfolio MPC.
