@@ -1,0 +1,25 @@
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw,rounded corners=2pt,align=center,text width=34mm,
+    minimum height=21mm,inner sep=3pt,font=\small,fill=blue!5},
+  gate/.style={box,fill=green!7},
+  arrow/.style={-{Latex[length=2mm]},thick}]
+\node[box] (data) at (0,0) {Real market\\and macro data\\SPY, VIX, MOVE};
+\node[box] (state) at (4.6,0) {Causal state\\features\\trend, volatility};
+\node[box] (controllers) at (9.2,0) {Frozen RL\\and MPC\\action decisions};
+\node[gate] (controls) at (0,-3.5) {Controls\\random and\\opposite};
+\node[gate] (intervene) at (4.6,-3.5) {Validation repair\\primitive\\to action};
+\node[gate] (primitive) at (9.2,-3.5) {Primitive discovery\\KMeans\\codebook};
+\draw[arrow] (data.east) -- (state.west);
+\draw[arrow] (state.east) -- (controllers.west);
+\draw[arrow] (controllers.south) -- (primitive.north);
+\draw[arrow] (primitive.west) -- (intervene.east);
+\draw[arrow] (intervene.west) -- (controls.east);
+% Dedicated corridor: 14 mm clearance from either row of boxes.
+\draw[arrow] (controls.north) -- (0,-1.75) -- (4.6,-1.75) -- (state.south);
+\end{tikzpicture}
+\caption{Reproducible XAI loop; the return arrow follows the open corridor between rows.}
+\label{fig:pipeline}
+\end{figure}
+The loop routes the control comparison back to the feature-based diagnosis without changing the frozen policy.

@@ -140,6 +140,11 @@ def main() -> None:
     ax.set_ylabel("Wealth, initial value = 1")
     ax.grid(alpha=0.25)
     ax.legend(frameon=False, ncol=2)
+    ax.annotate("Minimax: cash on 290/290 days; zero interest",
+                xy=(pd.Timestamp("2022-10-03"), 1.0),
+                xytext=(pd.Timestamp("2022-04-01"), 1.06),
+                arrowprops={"arrowstyle": "->", "color": "#1A9850"},
+                fontsize=8, color="#176b38")
     fig.tight_layout()
     fig.savefig(OUT / "extra_mpc_frozen_test_wealth.pdf", bbox_inches="tight")
     fig.savefig(TOP / "extra_mpc_frozen_test_wealth.pdf", bbox_inches="tight")
@@ -147,11 +152,16 @@ def main() -> None:
 
     # Summary figure: Sharpe and drawdown on frozen test and outer holdout.
     selected = result[result["model"].isin([
-        "MPC baseline frozen_test", "MPC state_robust frozen_test", "MPC ensemble frozen_test", "MPC minimax frozen_test",
-        "MPC baseline outer_holdout", "MPC state_robust outer_holdout", "MPC ensemble outer_holdout", "MPC minimax outer_holdout",
+        "MPC baseline frozen_test", "MPC state-robust frozen_test", "MPC ensemble frozen_test", "MPC minimax frozen_test",
+        "MPC baseline outer_holdout", "MPC state-robust outer_holdout", "MPC ensemble outer_holdout", "MPC minimax outer_holdout",
     ])].copy()
     selected["split"] = selected["model"].str.extract(r"(frozen_test|outer_holdout)$")[0].map({"frozen_test": "Frozen test", "outer_holdout": "Outer holdout"})
-    selected["controller"] = selected["model"].str.replace(r" (frozen_test|outer_holdout)$", "", regex=True).str.replace("MPC ", "", regex=False)
+    selected["controller"] = selected["model"].str.replace(r" (frozen_test|outer_holdout)$", "", regex=True).str.replace("MPC ", "", regex=False).str.replace("state-robust", "state_robust", regex=False)
+    expected = {(split, controller) for split in ["Frozen test", "Outer holdout"]
+                for controller in ["baseline", "state_robust", "ensemble", "minimax"]}
+    actual = set(zip(selected["split"], selected["controller"]))
+    if len(selected) != 8 or actual != expected:
+        raise ValueError(f"Incomplete comparison: missing {expected - actual}")
     fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.4))
     order = ["baseline", "state_robust", "ensemble", "minimax"]
     pretty = {"baseline": "Baseline", "state_robust": "State robust", "ensemble": "Ensemble", "minimax": "Minimax robust"}
@@ -160,6 +170,8 @@ def main() -> None:
     width = 0.36
     for j, split in enumerate(["Frozen test", "Outer holdout"]):
         part = selected[selected["split"] == split].set_index("controller").reindex(order)
+        if not np.isfinite(part[["sharpe", "max_drawdown"]].to_numpy()).all():
+            raise ValueError(f"Non-finite comparison values for {split}")
         axes[0].bar(x + (j - 0.5) * width, part["sharpe"], width, label=split)
         axes[1].bar(x + (j - 0.5) * width, part["max_drawdown"] * 100, width, label=split)
     axes[0].set_title("Sharpe")
@@ -169,8 +181,11 @@ def main() -> None:
     axes[1].set_xticks(x, [pretty[o] for o in order], rotation=25, ha="right")
     axes[1].axhline(0, color="black", lw=0.7)
     axes[0].legend(frameon=False)
+    axes[0].text(3 - width / 2, 0.04, "N/A*", ha="center", va="bottom", fontsize=8)
+    fig.text(0.5, 0.015, "* All-cash test path: zero volatility, Sharpe undefined; stored zero is a numerical convention.",
+             ha="center", fontsize=8)
     fig.suptitle("Additional MPC experiments")
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
     fig.savefig(OUT / "extra_mpc_comparison.pdf", bbox_inches="tight")
     fig.savefig(TOP / "extra_mpc_comparison.pdf", bbox_inches="tight")
     plt.close(fig)
@@ -189,6 +204,43 @@ def main() -> None:
     })
     diagnostic.to_csv(OUT / "frozen_test_model_disagreement.csv", index=False)
     diagnostic.to_csv(TOP / "frozen_test_model_disagreement.csv", index=False)
+    # Audit every candidate, not only the selected cash score.
+    audit_rows = []
+    prev = 2
+    for i, row in mm.iterrows():
+        model_scores, _ = score_models(test, i, prev)
+        worst = model_scores.min(axis=0)
+        chosen = int(row["action"])
+        audit_rows.append({
+            "date": row["date"], "previous_action": prev,
+            "chosen_action": chosen, "cash_score": worst[0],
+            "best_risky_score": worst[1:].max(),
+            "cash_margin": worst[0] - worst[1:].max(),
+            **{f"worst_score_a{a}": worst[a] for a in range(6)}
+        })
+        if chosen != int(np.argmax(worst)):
+            raise AssertionError(f"Minimax action inconsistent on {row['date']}")
+        prev = chosen
+    minimax_audit = pd.DataFrame(audit_rows)
+    minimax_audit.to_csv(OUT / "minimax_decision_audit.csv", index=False)
+    minimax_audit.to_csv(TOP / "minimax_decision_audit.csv", index=False)
+    audit_summary = {
+        "days": len(mm),
+        "cash_days": int((mm.action == 0).sum()),
+        "zero_return_days": int((mm.ret == 0).sum()),
+        "strict_cash_wins": int((minimax_audit.cash_margin > 0).sum()),
+        "min_cash_margin": float(minimax_audit.cash_margin.min()),
+        "max_best_risky_score": float(minimax_audit.best_risky_score.max()),
+        "initial_cash_score": float(minimax_audit.cash_score.iloc[0]),
+        "gross_wealth": "1.000 for all days",
+        "accounting": "Stored return excludes transaction costs; score includes them. "
+                      "Initial reference action is 2; its one-off move to cash costs "
+                      "0.0006 in the score but is not debited from stored wealth. "
+                      "Cash earns zero interest. Zero-volatility Sharpe is undefined; "
+                      "the legacy metrics helper stores 0 by numerical convention."
+    }
+    (OUT / "minimax_audit_summary.json").write_text(json.dumps(audit_summary, indent=2), encoding="utf-8")
+    (TOP / "minimax_audit_summary.json").write_text(json.dumps(audit_summary, indent=2), encoding="utf-8")
     summary = {
         "frozen_test_disagreement_rate": float(diagnostic["action_disagreement"].mean()),
         "frozen_test_ensemble": next(r for r in rows if r["model"] == "MPC ensemble frozen_test"),

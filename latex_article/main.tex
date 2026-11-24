@@ -2,6 +2,7 @@
 \usepackage{fontspec}
 \setmainfont{Latin Modern Roman}
 \newfontfamily\cjkfont{Noto Serif SC}
+\newfontfamily\coverfont{Times New Roman}
 \usepackage{microtype}
 \usepackage{geometry}
 \geometry{margin=27mm}
@@ -20,32 +21,16 @@
 \hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
 
 \newcommand{\method}[1]{\textsc{#1}}
+\postdisplaypenalty=10000
+\clubpenalty=10000
+\widowpenalty=10000
 
 \begin{document}
-\begin{titlepage}
-\thispagestyle{empty}
-\centering
-\vspace*{18mm}
-{\Large\bfseries Machine Learning II Course Report\par}
-\vspace{20mm}
-{\LARGE\bfseries Debugging the Black Box:\par}
-\vspace{3mm}
-{\LARGE\bfseries Explainable Interventions for RL and MPC Portfolio Control\par}
-\vfill
-\begin{tabular}{@{}ll@{}}
-\textbf{Student ID:} & I202680256\\[3mm]
-\textbf{Name:} & Ivan Pavliuk \quad {\cjkfont 林伟}\\[3mm]
-\textbf{Major:} & Big Data and Machine Learning\\[3mm]
-\textbf{Course Instructors:} & {\cjkfont 朱力军，万一鸣}\\[3mm]
-\textbf{School:} & School of Artificial Intelligence and Innovation\\
-\end{tabular}
-\vfill
-{\large Month 11, Day 24, 2026\par}
-\end{titlepage}
+\input{titlepage}
 \pagenumbering{arabic}
 
 \begin{abstract}
-This project report compares a tabular reinforcement-learning portfolio controller with a transparent receding-horizon model-predictive controller on a real US market stress panel. The state contains SPY returns and volatility, VIX and VIX3M, MOVE, high-yield and investment-grade bond ETFs, and FRED/ALFRED stress variables. The RL controller is trained on 2010--2017 data. A validation period from 2018--2021 selects one primitive intervention, while the frozen test from 2022-01-03 to 2023-02-28 is used once for the before--after comparison. On the frozen test, baseline RL has Sharpe $-0.653$ and maximum drawdown $-21.71\%$; baseline MPC has Sharpe $0.322$ and maximum drawdown $-6.62\%$. A train-only behavior vocabulary identifies a stress-overexposure primitive. Mapping it to cash preservation improves RL to Sharpe $-0.460$ and maximum drawdown $-14.95\%$, with a control-adjusted Sharpe lift of $+0.214$ against twenty matched-random repairs. Robust MPC reaches Sharpe $1.990$ on the exploratory 2023--2026 outer holdout with maximum drawdown $-7.44\%$. The results support explainability as a debugging and control interface, while the outer holdout also shows that a local RL repair is not a universal improvement.
+This project report compares a tabular reinforcement-learning portfolio controller with a transparent receding-horizon model-predictive controller on a real US market stress panel. The dataset contains market and macro series; the tabular RL state uses SPY trend, VIX percentile, and HYG--LQD relative performance. The RL controller is trained on 2010--2017 data. A validation period from 2018--2021 selects one primitive intervention, while the frozen test from 2022-01-03 to 2023-02-28 is used for the historical before--after comparison. On the frozen test, baseline RL has Sharpe $-0.653$ and maximum drawdown $-21.71\%$; baseline MPC has Sharpe $0.322$ and maximum drawdown $-6.62\%$. A train-only behavior vocabulary identifies a stress-overexposure primitive. Mapping it to cash preservation improves RL to Sharpe $-0.460$ and maximum drawdown $-14.95\%$, with a control-adjusted Sharpe lift of $+0.214$ against twenty matched-random repairs. Robust MPC reaches Sharpe $1.990$ on the exploratory 2023--2026 outer holdout with maximum drawdown $-7.44\%$. The results support explainability as a debugging and control interface, while the outer holdout also shows that a local RL repair is not a universal improvement.
 \end{abstract}
 
 \paragraph{Keywords:} reinforcement learning; model predictive control; explainable AI; self-supervised learning; portfolio control; stress regime; counterfactual intervention.
@@ -59,117 +44,30 @@ The experiment follows three stages. Stage A measures both controllers before an
 
 \section{Problem Formulation}
 \subsection{Sequential portfolio decision problem}
-The portfolio is represented as an MDP. At day $t$, the state $s_t$ contains a causal market-feature window, current allocation, and a discrete stress representation. The action $a_t$ is one of six allocation vectors over SPY, TLT, HYG, and residual cash. The action is applied to the return from $t$ to $t+1$. The daily reward used by Q-learning is
+The portfolio controller uses an approximate discrete market state. At day $t$, $s_t$ combines SPY trend, VIX percentile, and a credit-relative-return flag; previous allocation is tracked separately for turnover, not included in the 18-state Q-table. The action $a_t$ is one of six allocations over SPY, TLT, HYG, and residual cash. The RL action is applied to the return from $t$ to $t+1$. Its daily learning reward is
 \begin{equation}
 r_t = \log\!\left(1+w(a_t)^\top R_{t+1}\right) - \lambda_{\mathrm{turn}}\left\|w(a_t)-w(a_{t-1})\right\|_1,
 \qquad \lambda_{\mathrm{turn}}=0.0006.
 \label{eq:rl-reward}
 \end{equation}
-The state does not use future returns. Rolling percentiles for volatility and VIX are estimated from past observations only.
+The reward values subsequent growth and subtracts a penalty for trading.
+Here $t$ is the decision index, $s_t$ its observed market state, and $a_t$ the chosen action identifier. The column vector $w(a_t)$ gives three risky-asset weights; $w(a_{t-1})$ is the previous target. The vector $R_{t+1}$ contains asset returns realized after the RL decision. The transpose $\top$ makes their dot product a scalar portfolio return. The scalar 1 represents starting wealth, $\log$ is the natural logarithm, and $\|\cdot\|_1$ adds the absolute changes of risky weights. The coefficient $\lambda_{\mathrm{turn}}=0.0006$ is six basis points per unit of turnover, identical to $c$ below. Thus $r_t$ is a shaped learning reward, not the gross return plotted later. The policy cannot observe $R_{t+1}$ at selection time; chronology and the different MPC indexing are specified in the methods.
 
 \subsection{Receding-horizon MPC}
-MPC uses the same action grid. For each candidate action it estimates a daily mean vector $\mu_t$ and covariance matrix $\Sigma_t$ from the previous sixty observations and scores a horizon $H=5$:
+MPC uses the same action grid. Its original baseline estimates daily mean $\mu_t$ from the previous twenty observations and covariance $\Sigma_t$ from the previous sixty, then scores a horizon $H=5$:
 \begin{equation}
 J_t(w) = H w^\top\mu_t - \lambda_{\Sigma}H w^\top\Sigma_t w - \lambda_{\mathrm{turn}}\left\|w-w_{t-1}\right\|_1,
 \qquad \lambda_{\Sigma}=8.
 \label{eq:mpc-objective}
 \end{equation}
-The robust controller adds an equity-concentration constraint in stress and a VIX-linked uncertainty penalty. This makes its risk control visible in the objective and constraints.
+MPC ranks a candidate by forecast gain minus variance and turnover penalties.
+Here $J_t(w)$ is a scalar score for candidate weight vector $w$ at row $t$, not money earned. $H$ is the number of forecast days; $w^\top\mu_t$ is the predicted daily portfolio return, and $w^\top\Sigma_t w$ its daily variance including cross-asset covariance. Risk coefficient $\lambda_\Sigma=8$ scales the variance penalty and is denoted $\lambda$ below. The previous target is $w_{t-1}$; $\lambda_{\mathrm{turn}}\|w-w_{t-1}\|_1$ penalizes its change. This approximation holds one candidate constant over the horizon. The state-dependent variant adds a SPY-weight cap and a separate VIX penalty; its full equation is given below.
 
 \section{Methods and Algorithms}
 \subsection{RL challenger and MPC baselines}
 The RL challenger is tabular Q-learning over 18 stress states formed by three SPY trend bins, three VIX-percentile bins, and a credit-relative-return flag. Six actions range from cash preservation to full SPY exposure. The Q-table is updated for 160 passes through the training period with epsilon-greedy exploration, discount factor $0.985$, and learning rate $0.08$. The MPC baseline uses rolling sample moments; robust MPC adds the explicit stress constraint.
 
-\subsection{Detailed mathematical specification of the controllers}
-This subsection fixes the notation used by all five controller variants. There are $n=3$ risky sleeves, ordered as SPY, TLT, and HYG; cash is the residual sleeve and is not included in the return vector because its modeled daily return is zero. The action set is $\mathcal{A}=\{0,1,2,3,4,5\}$. Each action $a$ maps to a risky-weight vector $w(a)\in\mathbb{R}^{3}$, and the cash weight is $w_{\mathrm{cash}}(a)=1-\mathbf{1}^{\top}w(a)$. The vector $R_{t+1}\in\mathbb{R}^{3}$ contains the realized risky-sleeve returns over the interval from decision time $t$ to $t+1$; $s_t$ is the state observed before that interval; $a_t$ is the action chosen from that state; and $c=0.0006$ is the transaction-cost coefficient.
-
-\paragraph{RL baseline.}
-The frozen policy selects the action with the largest learned state--action value:
-\begin{equation}
-a_t^{\mathrm{RL}}=\arg\max_{a\in\mathcal{A}}Q(s_t,a),
-\qquad
-r_t=\log\!\left(1+w(a_t^{\mathrm{RL}})^\top R_{t+1}\right)-c\left\|w(a_t^{\mathrm{RL}})-w(a_{t-1}^{\mathrm{RL}})\right\|_1.
-\label{eq:rl-detailed}
-\end{equation}
-Here $Q(s,a)$ is the Q-table, $s_t$ is one of the 18 discrete stress states, $w(a_t^{\mathrm{RL}})^\top R_{t+1}$ is the portfolio return realized after the action, and the $\ell_1$ norm sums the absolute changes in risky sleeve weights. During training, the table is updated by
-\begin{equation}
-Q(s_t,a_t)\leftarrow Q(s_t,a_t)+\eta\left[r_t+\gamma_d\max_{a'\in\mathcal{A}}Q(s_{t+1},a')-Q(s_t,a_t)\right],
-\qquad \eta=0.08,\quad \gamma_d=0.985.
-\label{eq:q-update-detailed}
-\end{equation}
-The symbol $\eta$ is the learning rate and $\gamma_d$ is the RL discount factor; $\gamma_d$ is deliberately distinct from the MPC risk-aversion coefficient $\lambda$. The index $t+1$ on $R_{t+1}$ is not look-ahead: the action is chosen using $s_t$, held over $t\to t+1$, and only then is the return observed.
-
-\paragraph{Takeaway.} The RL baseline learns a mapping from the current discrete state to an action, then receives the next interval's realized return as feedback.
-
-\paragraph{RL repaired.}
-The repaired controller keeps $Q$ frozen and adds only a primitive-to-action execution layer. Let $\phi_t$ be the behavior feature vector used by the train-only KMeans codebook, containing the state, the original action, the stress flag, twenty-day SPY return, VIX percentile, and credit-relative return. The inferred primitive is
-\begin{equation}
-\hat z_t=\operatorname{KMeans}(\phi_t),
-\qquad \hat z_t\in\{0,\ldots,K-1\},\quad K=6,
-\label{eq:primitive-detailed}
-\end{equation}
-and the executed action in this run is
-\begin{equation}
-a_t^{\mathrm{rep}}=
-\begin{cases}
-0, & \hat z_t=0 \quad\text{(stress overexposure mapped to cash preservation)},\\
-\displaystyle\arg\max_{a\in\mathcal{A}}Q(s_t,a), & \hat z_t\neq 0.
-\end{cases}
-\label{eq:repair-detailed}
-\end{equation}
-The repaired reward is obtained by replacing $a_t^{\mathrm{RL}}$ with $a_t^{\mathrm{rep}}$ in Equation~\eqref{eq:rl-detailed}; the Q-table, KMeans centroids, and test-period parameters are not updated.
-
-\paragraph{Takeaway.} RL repair changes one frozen execution rule for one named primitive, so an observed change can be attributed to the adapter rather than to retraining.
-
-\paragraph{MPC baseline.}
-For a rolling window of $L=60$ past returns, the controller estimates
-\begin{equation}
-\mu_t^{(L)}=\frac{1}{L}\sum_{j=t-L+1}^{t}R_j,
-\qquad
-\Sigma_t^{(L)}=\frac{1}{L-1}\sum_{j=t-L+1}^{t}(R_j-\mu_t^{(L)})(R_j-\mu_t^{(L)})^\top.
-\label{eq:mpc-estimates-detailed}
-\end{equation}
-Here $\mu_t^{(L)}\in\mathbb{R}^{3}$ is the trailing mean-return vector, $\Sigma_t^{(L)}\in\mathbb{R}^{3\times3}$ is the trailing covariance matrix, and $L$ is the memory length. For a candidate weight vector $w(a)$, the horizon-$H$ score is
-\begin{equation}
-J_t^{\mathrm{base}}(w(a))=H w(a)^\top\mu_t^{(60)}-\lambda H w(a)^\top\Sigma_t^{(60)}w(a)-c\left\|w(a)-w_{t-1}\right\|_1,
-\qquad H=5,\quad \lambda=8.
-\label{eq:mpc-baseline-detailed}
-\end{equation}
-The first term is the predicted cumulative mean return over the planning horizon, the second term is the variance penalty, $\lambda$ converts variance into the same score units as return, $w_{t-1}$ is yesterday's realized risky allocation, and $c$ penalizes turnover. The controller computes this score for all six candidates and applies only the first action of the receding-horizon plan:
-\begin{equation}
-a_t^{\mathrm{MPC}}=\arg\max_{a\in\mathcal{A}}J_t^{\mathrm{base}}(w(a)),
-\qquad w_t=w(a_t^{\mathrm{MPC}}).
-\label{eq:mpc-choice-detailed}
-\end{equation}
-
-\paragraph{Takeaway.} Baseline MPC is a daily constrained decision rule: it forecasts recent mean and covariance, scores six allocations, executes one, and recomputes tomorrow.
-
-\paragraph{MPC ensemble.}
-The ensemble uses three causal estimators with windows $L_1=20$, $L_2=60$, and $L_3=120$ days. For model $m\in\{1,2,3\}$, let $\mu_t^{(m)}=\mu_t^{(L_m)}$ and $\Sigma_t^{(m)}=\Sigma_t^{(L_m)}$. Equal weights $\omega_m=1/3$ are fixed before validation. The ensemble score is
-\begin{equation}
-\begin{aligned}
-J_t^{\mathrm{ens}}(w(a))
-&=\sum_{m=1}^{3}\omega_m\left[H w(a)^\top\mu_t^{(m)}-\lambda H w(a)^\top\Sigma_t^{(m)}w(a)\right]\\
-&\quad-c\left\|w(a)-w_{t-1}\right\|_1,\\
-a_t^{\mathrm{ens}}&=\arg\max_{a\in\mathcal{A}}J_t^{\mathrm{ens}}(w(a)).
-\end{aligned}
-\label{eq:mpc-ensemble-detailed}
-\end{equation}
-The weights $\omega_m$ sum to one, so the three estimators contribute equally; the ensemble averages the predicted objective before choosing an action, rather than voting over already chosen actions. With common $H$, $\lambda$, and turnover cost, this is equivalent on the discrete action grid to using $\bar\mu_t=\sum_m\omega_m\mu_t^{(m)}$ and $\bar\Sigma_t=\sum_m\omega_m\Sigma_t^{(m)}$. The equal-weight choice follows forecast-combination evidence that simple combinations can reduce model-specific error and structural-break sensitivity \cite{bates1969combination,timmermann2006forecast}; the covariance averaging is also related to shrinkage toward a more stable covariance estimate \cite{ledoit2004honey}. The use of rolling covariance forecasts is consistent with the risk-management motivation of EWMA and historical covariance forecasting \cite{riskmetrics1996}, while the multi-period portfolio-control framing follows recent MPC portfolio work \cite{li2022portfolio-mpc}.
-
-\paragraph{Takeaway.} Ensemble MPC reduces dependence on one arbitrary memory length by blending fast, medium, and slow covariance views before the action is selected.
-
-\paragraph{MPC minimax robust.}
-The new robust experiment uses the same three model scores but protects against the worst member of the uncertainty set. Define the model-specific pre-cost score $G_t^{(m)}(w(a))=H w(a)^\top\mu_t^{(m)}-\lambda H w(a)^\top\Sigma_t^{(m)}w(a)$. The minimax score and action are
-\begin{equation}
-J_t^{\mathrm{wc}}(w(a))=\min_{m\in\{1,2,3\}}G_t^{(m)}(w(a))-c\left\|w(a)-w_{t-1}\right\|_1,
-\qquad
-a_t^{\mathrm{wc}}=\arg\max_{a\in\mathcal{A}}J_t^{\mathrm{wc}}(w(a)).
-\label{eq:mpc-minimax-detailed}
-\end{equation}
-The operator $\min_m$ means that each candidate is judged by its least favorable memory window. This controller is robust to model uncertainty, not necessarily to every market shock: its protection is only as good as the chosen uncertainty set. In a continuous action space a pointwise minimum of concave quadratics need not preserve concavity, but the present controller evaluates only six candidates, so exhaustive scoring is exact for the implemented discrete problem. The minimax construction follows robust MPC and portfolio-uncertainty formulations \cite{mayne2000constrained,lobo2000worstcase,wang2004robust}.
-
-\paragraph{Takeaway.} Minimax MPC deliberately accepts conservatism when the three forecasts disagree, and the frozen-test all-cash behavior is therefore a measurable uncertainty response rather than a coding error.
+\input{sections/controller_details}
 
 \subsection{Interpretable CHRL: from self-supervised primitives to interventions}
 \label{sec:chrl}
@@ -192,7 +90,8 @@ h_t^{(\alpha,k)} = h_t + \alpha d_k,
 a_t^{(\alpha,k)}\sim\pi_\theta^{(\alpha,k)},
 \label{eq:intervention}
 \end{equation}
-where $t$ denotes the current time step, $h_t$ is the original hidden state of the policy, $h_t^{(\alpha,k)}$ is the intervened hidden state, $d_k$ is an interpretable intervention direction or target-primitive shift, and $\alpha$ controls intervention strength. The symbol $a_t^{(\alpha,k)}$ is the action induced by the edited hidden state. The policy is written as $\pi_\theta$, where $\theta$ denotes fixed policy parameters. The full action distribution is conditioned on the edited state rather than on a specific action value.
+An intervention changes a representation and then queries the same frozen policy.
+Here $h_t$ is the original hidden-state vector at time $t$; $k$ labels a proposed primitive direction $d_k$ of the same dimension. The scalar $\alpha$ specifies the intervention dose, so $\alpha d_k$ is the added displacement and $h_t^{(\alpha,k)}$ is the edited vector. The superscript $(\alpha,k)$ records dose and direction, not a power. $\theta$ contains all fixed policy parameters. $\pi_\theta(\cdot\mid h)$ is a distribution over actions for representation $h$; the dot denotes its action argument and the vertical bar means conditioning. The symbol $\sim$ denotes sampling the edited action $a_t^{(\alpha,k)}$ from that distribution. The left-hand $s_t$ identifies the input state from which the representation was produced. This formula describes the CHRL intervention framework; the present tabular experiment implements the separately defined primitive-to-action adapter.
 
 These equations say that we take the policy's original hidden state, gently push it in a chosen interpretable direction, and observe what action the same frozen policy would produce from that edited internal state. In the present course run, the operational control surface is a train-only primitive code followed by a discrete primitive-to-action adapter; hidden PPO activations are outside the available export.
 
@@ -218,6 +117,7 @@ State--primitive NMI & 0.647\\
 \bottomrule
 \end{tabular}
 \end{table}
+All six codes are used, but this descriptive agreement does not establish a causal mechanism.
 
 \begin{figure}[H]
 \centering
@@ -225,6 +125,7 @@ State--primitive NMI & 0.647\\
 \caption{Primitive coverage for the new real-market run.}
 \label{fig:primitive-coverage}
 \end{figure}
+The bars show how often each code appears, not whether it is profitable.
 
 \paragraph{Intervention part.}
 The intervention part asks whether the discovered modes are behaviorally specific and whether a narrow edit is safer than rewriting the full controller.
@@ -238,6 +139,7 @@ The short note's result is retained as the design hypothesis: the hidden state a
 \caption{Control-surface diagnostic on the new frozen test.}
 \label{fig:control-surfaces}
 \end{figure}
+The targeted adapter and comparison edits produce different gross-return Sharpe values in this window.
 
 \paragraph{Result 2: Best type of intervention.}
 The validation selector compares a small set of interventions. It selects the primitive and replacement action jointly and never uses the frozen test for selection. In the current run, primitive 0 is labelled stress overexposure and is mapped to cash preservation. The frozen policy and Q-table remain unchanged.
@@ -248,6 +150,7 @@ The validation selector compares a small set of interventions. It selects the pr
 \caption{Validation selection scores for candidate primitive-to-action repairs.}
 \label{fig:best-intervention}
 \end{figure}
+The validation score ranks the candidate mappings before the selected mapping is evaluated later.
 
 \begin{table}[H]
 \centering
@@ -266,6 +169,7 @@ If performance degradation is concentrated in a small subset of harmful primitiv
 \bottomrule
 \end{tabular}
 \end{table}
+Each intervention type asks a different question about whether a behavioral mode can be changed usefully.
 
 \paragraph{Result 3: Hidden state plus hidden action control works better together.}
 The combined interface is the practically relevant unit: the primitive identifies a recurring mode and the action adapter specifies the minimal edit. In this run, the combined edit is evaluated against matched-random remappings and an opposite-direction negative control. The targeted repair improves the frozen-test risk profile, but the outer holdout shows that this local gain is not a universal policy improvement.
@@ -276,37 +180,15 @@ The combined interface is the practically relevant unit: the primitive identifie
 \caption{Primitive-level return contribution and support on the frozen test.}
 \label{fig:primitive-contribution}
 \end{figure}
+Primitive returns are conditional descriptions of this path, and support indicates how much data backs each value.
 
 \subsubsection{Self-supervised learning references and why they matter here}
 The primitive layer is related to several established SSL ideas. VQ-VAE makes a discrete codebook a first-class representation object \cite{oord2017vqvae}; Deep InfoMax maximizes mutual-information objectives between local and global representations \cite{hjelm2019infomax}; SimCLR shows the value of augmentations and contrastive agreement \cite{chen2020simclr}; MoCo uses a momentum-updated dictionary for contrastive representation learning \cite{he2020moco}; and BYOL demonstrates that useful representations can emerge without explicit negative pairs \cite{grill2020byol}. The present financial application is narrower: it uses a compact behavior vocabulary to expose an intervention interface, not to claim that SSL alone produces a trading edge.
 
 \subsection{Controls and evaluation}
-The intervention is compared with twenty matched-random remappings that use the same replacement action but a randomly selected non-target primitive. An opposite-direction negative control maps the target primitive to full-equity exposure. The control-adjusted effect is the targeted frozen-test Sharpe minus the mean matched-random Sharpe. Performance claims are reported by split, with the frozen test used once and the outer holdout treated as exploratory.
+The intervention is compared with twenty matched-random remappings that use the same replacement action but a randomly selected non-target primitive. An opposite-direction negative control maps the target primitive to full-equity exposure. The control-adjusted effect is the targeted frozen-test Sharpe minus the mean matched-random Sharpe. Performance claims are reported by split, with both previously inspected evaluation windows treated as historical research comparisons.
 
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}[
-  node distance=7mm and 8mm,
-  box/.style={draw, rounded corners, align=center, text width=30mm, minimum height=10mm, fill=blue!5},
-  gate/.style={draw, rounded corners, align=center, text width=30mm, minimum height=10mm, fill=green!7},
-  arrow/.style={-{Latex[length=2mm]}, thick}
-]
-\node[box] (data) {Real market and macro data\\SPY, VIX, MOVE, credit, FRED/ALFRED};
-\node[box, right=of data] (state) {Causal state features\\trend, volatility, stress};
-\node[box, right=of state] (controllers) {Frozen RL and MPC\\action decisions};
-\node[gate, below=of controllers] (primitive) {Primitive discovery\\KMeans codebook};
-\node[gate, left=of primitive] (intervene) {Validation repair\\primitive to action};
-\node[gate, left=of intervene] (controls) {Controls\\random and opposite};
-\draw[arrow] (data) -- (state);
-\draw[arrow] (state) -- (controllers);
-\draw[arrow] (controllers) -- (primitive);
-\draw[arrow] (primitive) -- (intervene);
-\draw[arrow] (intervene) -- (controls);
-\draw[arrow] (controls.north) |- (state.south);
-\end{tikzpicture}
-\caption{Reproducible XAI loop.}
-\label{fig:pipeline}
-\end{figure}
+\input{sections/pipeline}
 
 \section{Software Architecture and Implementation}
 The implementation is a single reproducible Python program. It loads the real market files, constructs causal features, fits Q-learning, runs MPC, discovers primitives, and writes machine-readable artifacts. Stage 0 records the data contract and splits. Stage 0.1 records model outputs. Stages 1--3 record primitive discovery and labels. Stage 4 locks the frozen test. Stages 5--6 record the control surface and repair adapter. Stages 7--9 record post-intervention results, controls, and the final verdict.
@@ -314,7 +196,7 @@ The implementation is a single reproducible Python program. It loads the real ma
 The remote panel was cross-checked on host \texttt{tsinghua-quant}; the local copy is used for the reported run so that the course submission contains all inputs needed for reproduction. The full stage artifacts are stored in \texttt{artifacts/stage0} through \texttt{artifacts/stage9}.
 
 \section{Data Description and Experimental Design}
-The main panel contains daily adjusted prices for SPY, TLT, HYG, and LQD, plus VIX, VIX3M, and MOVE. Derived features include one-day returns, twenty-day SPY momentum and volatility, VIX term structure, HYG minus LQD relative performance, and five-day changes in STLFSI4 and the 10Y--2Y spread. The market data are real US observations from 2010-01-04 through 2026-07-07. FRED and ALFRED values are merged by observation date and forward-filled only after availability; missing early stress values are treated as zero for the diagnostic feature.
+The main panel contains daily adjusted prices for SPY, TLT, HYG, and LQD, plus VIX, VIX3M, and MOVE. Derived features include one-day returns, twenty-day SPY momentum and volatility, VIX term structure, HYG minus LQD relative performance, and five-day changes in STLFSI4 and the 10Y--2Y spread. The market data are real US observations from 2010-01-04 through 2026-07-07. The loader merges the latest available FRED/ALFRED vintages by observation date; this is not a point-in-time release reconstruction. Those macro columns are diagnostic and do not enter the tabular policy or the MPC scores.
 
 \begin{table}[H]
 \centering
@@ -326,19 +208,29 @@ Split & Dates & Purpose\\
 \midrule
 Train & 2010-01-04 to 2017-12-29 & Q-learning and primitive fit\\
 Validation & 2018-01-02 to 2021-12-31 & Repair selection\\
-Frozen test & 2022-01-03 to 2023-02-28 & Stage A and Stage C, once\\
+Frozen test & 2022-01-03 to 2023-02-28 & Historical Stage A and Stage C\\
 Outer holdout & 2023-03-01 to 2026-07-07 & Exploratory robustness check\\
 \bottomrule
 \end{tabular}
 \end{table}
+The dates distinguish fitting, selection, and already-inspected historical evaluation periods.
 
-The principal metrics are annualized return, annualized Sharpe ratio, maximum drawdown, hit rate, and average turnover. For daily returns $r_t$ and wealth $W_t=\prod_{u\leq t}(1+r_u)$,
+The saved trajectory column \texttt{ret} contains gross simple portfolio returns. To avoid confusing those returns with the RL reward $r_t$, denote the evaluation returns by $g_t$. For $T$ observations, define
 \begin{equation}
-\operatorname{Sharpe}=\sqrt{252}\frac{\bar r}{s_r},
-\qquad
-\operatorname{MaxDD}=\min_t\left(\frac{W_t}{\max_{u\leq t}W_u}-1\right).
+\begin{aligned}
+ \bar g&=\frac1T\sum_{t=1}^{T}g_t,\qquad
+ s_g=\sqrt{\frac{1}{T-1}\sum_{t=1}^{T}(g_t-\bar g)^2},\\
+ \mathrm{Sharpe}&=\sqrt{252}\,\frac{\bar g}{s_g},\qquad
+ W_t=\prod_{u=1}^{t}(1+g_u),\\
+ \mathrm{MaxDD}&=\min_{1\le t\le T}
+       \left(\frac{W_t}{\max_{1\le u\le t}W_u}-1\right).
+\end{aligned}
 \label{eq:metrics}
 \end{equation}
+Sharpe measures average return relative to volatility, and drawdown measures the largest fall from a previous wealth peak.
+Here $T$ counts daily observations; $t$ is the current observation and $u$ a dummy index over earlier ones. $\bar g$ is arithmetic mean daily return; $s_g$ is sample standard deviation, with denominator $T-1$. The square root $\sqrt{252}$ annualizes daily Sharpe under the 252-trading-day convention and a zero risk-free benchmark. $W_t$ is normalized gross wealth starting from 1; the product sign compounds observed returns. The inner maximum is the highest observed wealth up to $t$, the ratio measures retained peak wealth, subtraction of 1 converts it to a signed drawdown, and the outer minimum finds the worst drawdown. The saved implementation starts its peak at the first observed wealth, excluding initial wealth from that maximum. A zero-volatility cash path has undefined Sharpe: the helper's numerical output 0 is displayed as N/A here.
+
+Annualized return is $(W_T/W_0)^{252/T}-1$, where $W_0=1$ and $W_T$ is terminal gross wealth. Turnover is the mean of the successive target changes $\tau_t$, with the first row counted as zero by the metrics helper. Hit rate is the fraction of observations with $g_t>0$; zero-return cash rows do not count as wins. Costs affect the objectives but are not debited from the saved wealth series.
 
 \section{Experimental Results}
 \subsection{Stage A: baseline comparison}
@@ -357,6 +249,7 @@ MPC frozen test & 3.05\% & 0.322 & -6.62\% & 7.41\%\\
 \bottomrule
 \end{tabular}
 \end{table}
+The ranking between the baseline controllers changes across historical periods.
 
 On validation, RL is more profitable than baseline MPC but trades more and carries greater drawdown. The frozen test reverses the ranking: RL loses 11.51\% annualized with Sharpe $-0.653$, while MPC earns 3.05\% annualized with Sharpe $0.322$ and a much smaller drawdown. This is a direct example of why validation return alone is not an adequate selection criterion in a drifting market.
 
@@ -369,6 +262,7 @@ The selected primitive is a stress-overexposure mode. Validation compares stress
 \caption{New-market primitive profiles. The codebook is fit on training behavior and assigned forward to validation and test rows.}
 \label{fig:primitive-profiles}
 \end{figure}
+Stress occupancy describes each cluster; numeric action codes are identifiers rather than a calibrated risk scale.
 
 \subsection{Stage C: post-intervention comparison}
 \begin{table}[H]
@@ -386,6 +280,7 @@ MPC robust frozen test & 0.27\% & 0.074 & -7.84\% & 7.24\%\\
 \bottomrule
 \end{tabular}
 \end{table}
+The targeted RL repair reduces the recorded drawdown, while the state gate does not improve every metric.
 
 The RL repair improves frozen-test Sharpe from $-0.653$ to $-0.460$, changes turnover from 18.71\% to 19.22\%, and improves maximum drawdown from $-21.71\%$ to $-14.95\%$. Annualized return improves from $-11.51\%$ to $-6.70\%$ but remains negative, so this is a risk-control and debugging result rather than evidence of a profitable strategy. The matched-random mean Sharpe is $-0.674$; the control-adjusted lift is $+0.214$. The opposite-direction negative control has Sharpe $-0.708$.
 
@@ -395,6 +290,7 @@ The RL repair improves frozen-test Sharpe from $-0.653$ to $-0.460$, changes tur
 \caption{Frozen-test wealth trajectories for Stage A and Stage C.}
 \label{fig:wealth}
 \end{figure}
+The curves show how each recorded gross return path accumulates over the same period.
 
 \begin{figure}[H]
 \centering
@@ -402,6 +298,7 @@ The RL repair improves frozen-test Sharpe from $-0.653$ to $-0.460$, changes tur
 \caption{Targeted repair compared with matched-random and opposite-direction controls.}
 \label{fig:controls}
 \end{figure}
+Comparison edits help assess specificity, but these controls do not establish statistical significance.
 
 \subsection{Additional MPC experiments: ensemble and minimax robust control}
 The two additional controllers use the same six-action grid, horizon $H=5$, risk-aversion coefficient $\lambda=8$, and turnover cost $c=0.0006$ as the baseline. The ensemble combines equally weighted rolling estimators with memory lengths $20$, $60$, and $120$ trading days. The minimax controller evaluates each candidate under all three estimators and retains the worst score before taking the action. No ensemble weight or minimax rule is selected on the frozen test.
@@ -422,7 +319,7 @@ Validation & Minimax robust & 0.29\% & 0.077 & -14.97\% & 7.51\%\\
 Frozen test & Baseline & 3.05\% & 0.322 & -6.62\% & 7.41\%\\
 Frozen test & State robust & 0.27\% & 0.074 & -7.84\% & 7.24\%\\
 Frozen test & Ensemble & -6.37\% & -1.171 & -7.72\% & 4.74\%\\
-Frozen test & Minimax robust & 0.00\% & 0.000 & 0.00\% & 0.00\%\\
+Frozen test & Minimax robust & 0.00\% & N/A & 0.00\% & 0.00\%\\
 Outer holdout & Baseline & 6.06\% & 0.728 & -11.10\% & 12.69\%\\
 Outer holdout & State robust & 14.21\% & 1.990 & -7.44\% & 13.88\%\\
 Outer holdout & Ensemble & 6.87\% & 0.804 & -7.44\% & 6.12\%\\
@@ -430,17 +327,21 @@ Outer holdout & Minimax robust & 3.36\% & 0.495 & -12.00\% & 7.49\%\\
 \bottomrule
 \end{tabular}
 \end{table}
+Averaging and worst-case selection yield different exposure choices even on the same action grid.
 
-The ensemble reduces turnover and matches or improves baseline risk on the outer holdout, but its frozen-test performance is poor because the fast and slow covariance estimates disagree during the 2022 stress period. The minimax controller selects cash on every frozen-test day: this is a conservative uncertainty response, not a positive return result. On the outer holdout it re-enters risky assets, showing that the rule is state-dependent rather than permanently disabled. Ensemble and minimax actions disagree on 14.48\% of frozen-test days.
+The ensemble has lower turnover in the later window, but loses on the 2022--2023 window. An audit recomputed all six minimax scores on all 290 historical test rows: cash was the strict winner on 290/290 rows, with a minimum margin of 0.0009 over the best non-cash candidate. The recorded action was 0 and the gross return was zero on every row. The first row uses the initialization moments; subsequent rows use available rolling data. This confirms the plotted horizontal path follows the implemented choice rule rather than a missing data series.
+
+For cash, the three risky weights are zero. After the first transition its expected risky return, variance penalty, and turnover are all zero, whereas every non-cash alternative has a lower worst-model score. The meaning is complete abstention from risk over this window, not successful market timing. The reported wealth stays at 1 because cash earns no interest and the saved returns exclude trading costs. The initial reference action is 2: moving from that target to cash incurs 0.0006 in the score, but the legacy wealth plot does not debit it. Debiting just this one-off penalty would give a flat path at 0.9994 instead. With exactly zero return volatility, economic Sharpe is undefined, even though the old helper stores 0. The outer-window strategy does re-enter risky assets. Ensemble and minimax actions disagree on 14.48\% of the historical test rows.
 
 \paragraph{Takeaway.} The ensemble smooths estimation noise, whereas minimax robust control protects against disagreement by accepting the possibility of an all-cash decision.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.92\linewidth]{figures/extra_mpc_frozen_test_wealth.pdf}
-\caption{Frozen-test wealth for baseline, state-dependent robust, ensemble, and minimax robust MPC.}
+\caption{Historical test wealth for the four MPC variants. The flat minimax path is an all-cash, zero-interest, gross-return trajectory, verified over all 290 decisions.}
 \label{fig:extra-mpc-wealth}
 \end{figure}
+The horizontal minimax curve means that this controller took no risky exposure during the entire window.
 
 \begin{figure}[H]
 \centering
@@ -448,6 +349,7 @@ The ensemble reduces turnover and matches or improves baseline risk on the outer
 \caption{Sharpe and maximum drawdown for the additional MPC experiments on the frozen test and outer holdout.}
 \label{fig:extra-mpc-comparison}
 \end{figure}
+All four controllers are shown; minimax's zero-volatility test Sharpe is marked N/A rather than treated as a measured zero.
 
 \paragraph{Takeaway.} The new graphs separate return-risk behavior from the original state-dependent robust controller and make the minimax conservatism visible.
 
@@ -469,24 +371,12 @@ MPC minimax outer holdout & 3.36\% & 0.495 & -12.00\% & 7.49\%\\
 \bottomrule
 \end{tabular}
 \end{table}
+The later period reverses some earlier gains, so no controller dominates every historical window.
 
 The outer holdout changes the interpretation. Robust MPC reaches Sharpe $1.990$ with maximum drawdown $-7.44\%$, whereas baseline MPC reaches Sharpe $0.728$ with maximum drawdown $-11.10\%$. The RL repair does not generalize as a universal improvement: repaired RL has Sharpe $0.800$ versus $1.451$ for baseline RL. This is the type of drift alert that the XAI layer is intended to expose.
 
-\section{Discussion and Limitations}
-\begin{itemize}[leftmargin=*,itemsep=2pt]
-\item The experiment uses a compact tabular RL challenger rather than the full CHRL PPO stack. This keeps the course submission reproducible and makes intervention semantics explicit, but limits claims about deep policy representations.
-\item Primitive labels are convergent descriptive labels, not mechanistic proof. Hidden PPO activations and TCAV-style probes are outside this run.
-\item The frozen test is a single historical episode and the outer holdout was inspected after the main experiment. Multiple markets, purged folds, block bootstrap, and a full Deflated Sharpe calculation are required before any investment claim.
-\item MPC is transparent by construction, but its forecasts are rolling sample estimates. Robust constraints improve risk in the holdout while sacrificing frozen-test return, illustrating the return--risk tradeoff.
-\item The ensemble and minimax experiments use a deliberately small uncertainty set of 20-, 60-, and 120-day windows. The minimax all-cash frozen-test result shows that robustness can become too conservative; it should be interpreted as a refusal signal, not as evidence of superior investment performance.
-\item Customer behavior and marketing datasets described in the research statement are not used here. This report is restricted to real US market and macro data.
-\end{itemize}
-
 \section{Conclusion}
 The before--after experiment demonstrates a practical XAI workflow for sequential portfolio decisions. MPC provides a readable controller and strong drawdown protection under the reported stress split. RL provides an adaptable challenger but is vulnerable to regime drift. The ensemble and minimax MPC experiments show two different responses to model uncertainty: averaging lowers turnover, while worst-case scoring can refuse risky exposure. A primitive-based intervention selected on validation improves frozen-test RL behavior relative to matched-random edits, yet the outer holdout shows that the repair is local rather than universal. The defensible conclusion is methodological: explanations are useful when they identify an editable behavior, specify a low-dose intervention, and survive negative controls.
-
-\section*{Data and Code Availability}
-The code is provided in \texttt{XRL\_MPC\_project/run\_experiment.py}. Stage 0--9 machine-readable artifacts are in \texttt{artifacts/stage0}--\texttt{artifacts/stage9}. The experiment is research-only and does not certify an investment policy.
 
 \begin{thebibliography}{99}
 \bibitem{oord2017vqvae}

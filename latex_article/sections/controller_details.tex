@@ -1,0 +1,166 @@
+\subsection{Detailed mathematical specification of the controllers}
+The six controllers are RL baseline, RL repaired, baseline MPC, state-dependent MPC, ensemble MPC, and minimax MPC. All use the same six allocations. Action identifiers are labels: action 5 is not more aggressive than action 4.
+
+\paragraph{Common symbols and action grid.}
+The index $t$ labels a trading observation; $i$ labels an asset and $j$ a historical observation. There are $n=3$ risky assets, ordered as SPY, TLT, HYG. The action set is $\mathcal A=\{0,1,2,3,4,5\}$. The column vector $w(a)\in\mathbb R^3$ contains the three target wealth fractions for action $a$, with components $w_i(a)$. Cash is residual:
+\begin{equation}
+w_{\mathrm{cash}}(a)=1-\mathbf1^\top w(a),\qquad \mathbf1=(1,1,1)^\top.
+\label{eq:cash-weight}
+\end{equation}
+The share not assigned to the three risky assets stays in cash.
+Here $\mathbf1$ is a vector of ones, $\top$ is transpose, and $\mathbf1^\top w$ adds the risky weights; the scalar 1 denotes 100\% of wealth. Cash earns zero interest in the simulation. Superscripts naming controllers or windows are labels, not powers.
+
+\begin{table}[H]
+\centering
+\caption{Six candidate portfolios; weights are fractions of wealth.}
+\label{tab:action-grid}
+\begin{tabular}{@{}rlrrrr@{}}
+\toprule
+Action & Allocation & SPY & TLT & HYG & Cash\\
+\midrule
+0 & Cash & 0 & 0 & 0 & 1\\
+1 & Defensive & 0.25 & 0.50 & 0.25 & 0\\
+2 & Balanced & 0.50 & 0.25 & 0.25 & 0\\
+3 & Growth & 0.75 & 0.125 & 0.125 & 0\\
+4 & Equity & 1 & 0 & 0 & 0\\
+5 & Equity and bonds & 0.50 & 0.50 & 0 & 0\\
+\bottomrule
+\end{tabular}
+\end{table}
+Each decision selects a row of this table rather than a continuous weight vector.
+
+\paragraph{Return, turnover, and chronology.}
+The adjusted price of asset $i$ on observation $t$ is $P_{i,t}$; its simple return is $R_{i,t}=P_{i,t}/P_{i,t-1}-1$. The column vector $R_t$ collects the three asset returns ending at $t$.
+\begin{equation}
+\begin{aligned}
+g_{t+1}(a_t)&=w(a_t)^\top R_{t+1}=\sum_{i=1}^{3}w_i(a_t)R_{i,t+1},\\
+\tau_t&=\|w(a_t)-w(a_{t-1})\|_1
+       =\sum_{i=1}^{3}|w_i(a_t)-w_i(a_{t-1})|.
+\end{aligned}
+\label{eq:return-turnover}
+\end{equation}
+The return is a weighted sum of asset returns, while turnover adds the sizes of the trades.
+Here $a_t$ is the selected action and $a_{t-1}$ is the previous action. The scalar $g_{t+1}$ is the subsequent simple portfolio return. The summation sign $\sum$ adds three contributions. The transpose makes a dot product, giving a scalar. Absolute-value bars count purchases and sales positively; $\|\cdot\|_1$ is the sum of these absolute changes. The saved implementation uses successive target weights, not weights drifted by asset returns, and excludes cash from turnover.
+
+RL features at row $t$ select an action credited with row $t+1$'s return. MPC moment estimates use rows strictly before $t$ and receive row $t$'s return. The state-dependent MPC gate additionally reads row-$t$ stress features while receiving row-$t$ returns: its saved output is not a fully lagged executable backtest. This revision preserves the stored outputs and explains their actual calculation. Their historical evaluation windows have already been inspected, so repeated analysis does not create an independent test.
+
+\paragraph{RL baseline and learning reward.}
+\begin{equation}
+\begin{aligned}
+a_t^{\mathrm{RL}}&=\arg\max_{a\in\mathcal A}Q(s_t,a),\\
+r_t&=\log(1+g_{t+1}(a_t^{\mathrm{RL}}))-c\tau_t,\qquad c=0.0006.
+\end{aligned}
+\label{eq:rl-detailed}
+\end{equation}
+The table selects an action and learning balances subsequent growth against turnover.
+The state $s_t$ is one of 18 bins of SPY trend, VIX percentile, and credit-relative return. $Q(s_t,a)$ is an estimate of discounted reward for that state-action pair. $\arg\max$ returns an action identifier, whereas $\max$ returns the score itself; ties choose the first grid entry. $r_t$ is a learning reward, distinct from simple return $g_{t+1}$. $\log$ is the natural logarithm and $1+g_{t+1}$ is the gross wealth multiplier. The coefficient $c$ is six basis points per unit of risky-weight turnover; $c\tau_t$ is a penalty. The code floors the logarithm's argument at $10^{-8}$ for numerical protection.
+
+\begin{equation}
+Q(s_t,a_t)\leftarrow Q(s_t,a_t)+
+\eta\left[r_t+\gamma_d\max_{a'\in\mathcal A}Q(s_{t+1},a')-Q(s_t,a_t)\right].
+\label{eq:q-update-detailed}
+\end{equation}
+Q-learning adjusts its old estimate toward the observed reward plus a continuation estimate.
+The assignment arrow $\leftarrow$ denotes an update. $\eta=0.08$ is its step size. The bracketed temporal-difference error consists of observed reward, discounted best next-state value, and subtraction of the old estimate. The index $a'$ ranges over possible next actions and $s_{t+1}$ is the next state. The discount factor $\gamma_d=0.985$ weights future rewards and is unrelated to MPC risk aversion $\lambda$. The table starts at zero and trains for 160 passes; exploration decreases from 0.21 to approximately 0.011. Evaluation uses greedy actions and does not update $Q$.
+
+\begin{equation}
+W_T=W_0\prod_{t=0}^{T-1}(1+g_{t+1}),\qquad
+\log(W_T/W_0)=\sum_{t=0}^{T-1}\log(1+g_{t+1}).
+\label{eq:compounding}
+\end{equation}
+Wealth compounds by multiplication; logs express that same growth as a sum.
+$W_0$ is initial wealth, $W_T$ is terminal wealth after $T$ return intervals, and $\prod$ multiplies their wealth factors. This gross accounting identity assumes no external cash flows. It concerns undiscounted log returns; a discounted sum of penalized rewards is not exactly log terminal wealth. A 50\% loss followed by a 50\% gain leaves $0.5\times1.5=0.75$ of starting wealth. A logarithm neither creates compounding nor imposes a maximum-drawdown constraint.
+
+\paragraph{RL repair and primitive assignment.}
+\begin{equation}
+\hat z_t=\arg\min_{k\in\{0,\ldots,K-1\}}\|S(\phi_t)-b_k\|_2^2,\qquad K=6.
+\label{eq:primitive-detailed}
+\end{equation}
+The behavior descriptor receives the label of its nearest training centroid.
+The vector $\phi_t$ contains state code, original action code, stress flag, twenty-day SPY return, VIX percentile, and twenty-day HYG-minus-LQD return. $S$ standardizes features using training means and standard deviations. $b_k$ is standardized KMeans centroid $k$; $K$ is the number of centroids. The squared Euclidean norm $\|\cdot\|_2^2$ sums squared component differences. $\arg\min$ returns the closest identifier; the hat in $\hat z_t$ denotes an inferred label. Scaler and centroids are frozen after training.
+
+\begin{equation}
+a_t^{\mathrm{rep}}=
+\begin{cases}
+0,&\hat z_t=0,\\
+a_t^{\mathrm{RL}},&\hat z_t\ne0.
+\end{cases}
+\label{eq:repair-detailed}
+\end{equation}
+Only primitive 0 activates the cash substitution; all other decisions keep their baseline actions.
+The superscript $\mathrm{rep}$ denotes the executed repaired action. The two zeros have different roles: primitive identifier 0 triggers the rule, while action identifier 0 selects cash. Classification uses the unedited baseline descriptor, not repeated reclassification of the edited action. The mapping is selected using validation and leaves $Q$ unchanged. The saved trajectory field \texttt{ret} is a gross simple return; the turnover penalty affects training but is not deducted from this field.
+
+\paragraph{Rolling moments.}
+Let $L$ denote the desired memory length and $N_{t,L}$ the available number of historical rows, capped at $L$. The saved experiments restart estimation at split boundaries, so initially fewer than $L$ observations are used. For at least ten rows:
+\begin{equation}
+\begin{aligned}
+\mu_t^{(L)}&=\frac{1}{N_{t,L}}\sum_{j=t-N_{t,L}}^{t-1}R_j,\\
+\Sigma_t^{(L)}&=\frac{1}{N_{t,L}-1}\sum_{j=t-N_{t,L}}^{t-1}
+(R_j-\mu_t^{(L)})(R_j-\mu_t^{(L)})^\top+\epsilon_\Sigma I_3.
+\end{aligned}
+\label{eq:mpc-estimates-detailed}
+\end{equation}
+Each memory window summarizes past returns by their average and covariance.
+The index $j$ runs from the oldest available row to the row immediately before $t$. $\mu_t^{(L)}$ is a three-component daily mean vector. $\Sigma_t^{(L)}$ is a $3\times3$ matrix with variances on its diagonal and covariances off the diagonal. Each centered outer product is a matrix; division by $N_{t,L}-1$ gives the sample covariance correction. $I_3$ is the identity and $\epsilon_\Sigma=10^{-6}$ is diagonal regularization. Below ten observations the code uses $\mu=0$, $\Sigma=10^{-4}I_3$ instead. Baseline MPC additionally uses an identity covariance fallback until sixteen observations are present.
+
+\paragraph{Baseline MPC.}
+The original baseline uses a mean from at most \emph{20} historical rows and covariance from at most \emph{60}; it is not a 60-day mean model.
+\begin{equation}
+\begin{aligned}
+J_t^{\mathrm{base}}(w)
+&=\underbrace{Hw^\top\mu_t^{(20)}}_{\text{forecast return}}
+-\underbrace{\lambda H w^\top\Sigma_t^{(60)}w}_{\text{variance penalty}}
+-\underbrace{c\|w-w_{t-1}\|_1}_{\text{turnover penalty}},\\
+&\hspace{18mm}H=5,\qquad\lambda=8.
+\end{aligned}
+\label{eq:mpc-baseline-detailed}
+\end{equation}
+The score rewards forecast return and subtracts uncertainty and reallocation penalties.
+The argument $w=w(a)$ is a candidate target, and $J_t^{\mathrm{base}}$ is a scalar ranking score, not realized return. $H$ scales daily mean and variance over five periods under locally stationary, serially uncorrelated approximations. The quadratic form $w^\top\Sigma w$ includes cross-asset covariance as well as individual variance. Risk aversion $\lambda$ converts variance to a score penalty; it is not the RL discount factor. $w_{t-1}$ is this controller's previous target, initialized to action 2 at the split's first row. $c$ remains the six-basis-point turnover coefficient.
+
+\begin{equation}
+a_t^{\mathrm{MPC}}=\arg\max_{a\in\mathcal A}J_t^{\mathrm{base}}(w(a)),
+\qquad w_t=w(a_t^{\mathrm{MPC}}).
+\label{eq:mpc-choice-detailed}
+\end{equation}
+The controller selects the highest-scoring portfolio and recomputes the choice on the next observation.
+$a$ ranges over candidates, $a_t^{\mathrm{MPC}}$ is the selected identifier, and $w_t$ its target weight vector. The implemented horizon holds one candidate constant; it does not optimize a sequence of different future allocations or solve a continuous quadratic program.
+
+\paragraph{State-dependent MPC.}
+\begin{equation}
+\begin{aligned}
+q_t&=\mathbf1\{v_t>0.67\ \text{or}\ \nu_t>0.67\ \text{or}\ d_t<-0.01\},\\
+\mathcal A_t&=\{a\in\mathcal A:q_t=0\ \text{or}\ w_{\mathrm{SPY}}(a)\le0.50\},\\
+J_t^{\mathrm{state}}(w)&=J_t^{\mathrm{base}}(w)-\rho\mathbf1\{v_t>0.67\}w_{\mathrm{SPY}},\\
+a_t^{\mathrm{state}}&=\arg\max_{a\in\mathcal A_t}J_t^{\mathrm{state}}(w(a)),
+\qquad \rho=0.025.
+\end{aligned}
+\label{eq:state-robust}
+\end{equation}
+This heuristic restricts SPY exposure in stress and penalizes SPY when VIX is elevated.
+$v_t$ is the VIX percentile and $\nu_t$ the percentile of twenty-day annualized SPY volatility. Both percentiles use a 252-row rolling window with at least 60 observations and lie between zero and one. $d_t$ is twenty-day HYG return minus twenty-day LQD return, so $-0.01$ means minus one percentage point. The indicator $\mathbf1\{\cdot\}$ is one if its condition holds and zero otherwise; any trigger activates stress flag $q_t$. The feasible set $\mathcal A_t$ removes SPY weights above 0.50 during stress, not combined SPY+HYG weights. $\rho$ is an additive score penalty, not a change in risk coefficient $\lambda$ or a transaction fee. This gate is distinct from minimax optimization.
+
+\paragraph{Ensemble MPC.}
+Models $m=1,2,3$ use memory lengths $L_m=20,60,120$ for both moments; model 2 therefore differs from the 20/60 baseline. Denote their estimates by $\mu_t^{(m)}$ and $\Sigma_t^{(m)}$.
+\begin{equation}
+\begin{aligned}
+G_t^{(m)}(w)&=Hw^\top\mu_t^{(m)}-\lambda H w^\top\Sigma_t^{(m)}w,\\
+J_t^{\mathrm{ens}}(w)&=\sum_{m=1}^{3}\omega_mG_t^{(m)}(w)-c\|w-w_{t-1}\|_1,\\
+a_t^{\mathrm{ens}}&=\arg\max_{a\in\mathcal A}J_t^{\mathrm{ens}}(w(a)),
+\qquad \omega_m=1/3.
+\end{aligned}
+\label{eq:mpc-ensemble-detailed}
+\end{equation}
+Ensemble MPC averages the three assessments of each candidate, then chooses the best average.
+The index $m$ labels a model, not an asset or action. $G_t^{(m)}$ is its pre-turnover return-minus-risk score. The nonnegative weights $\omega_m$ sum to one and are fixed equally. The superscript $\mathrm{ens}$ names ensemble outputs. Common $H$, $\lambda$, and $c$ retain their baseline values. The turnover term is charged once. Averaging scores equals using $\bar\mu_t=\sum_m\omega_m\mu_t^{(m)}$ and $\bar\Sigma_t=\sum_m\omega_m\Sigma_t^{(m)}$; it does not mean averaging action labels or Sharpe ratios. Forecast combination motivates the method \cite{bates1969combination,timmermann2006forecast}. This covariance blend is not the fitted shrinkage estimator of Ledoit and Wolf \cite{ledoit2004honey}.
+
+\paragraph{Minimax MPC.}
+\begin{equation}
+\begin{aligned}
+J_t^{\mathrm{wc}}(w)&=\min_{m\in\{1,2,3\}}G_t^{(m)}(w)-c\|w-w_{t-1}\|_1,\\
+a_t^{\mathrm{wc}}&=\arg\max_{a\in\mathcal A}J_t^{\mathrm{wc}}(w(a)).
+\end{aligned}
+\label{eq:mpc-minimax-detailed}
+\end{equation}
+Minimax chooses the portfolio whose least favorable model score is highest.
+The superscript $\mathrm{wc}$ means worst case. The inner minimum compares models for one fixed allocation; the outer maximum compares allocations. The minimizing model can change across dates and candidates. The turnover term uses minimax's own previous target. Positive semidefinite covariances make the scores concave in continuous weights, and the pointwise minimum of concave functions is also concave. Exhaustive scoring here gives the exact optimizer on the finite grid. Robust MPC and portfolio uncertainty motivate this construction, without supplying a market-loss guarantee for this simulation \cite{mayne2000constrained,lobo2000worstcase,wang2004robust}.

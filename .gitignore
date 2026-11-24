@@ -7,6 +7,11 @@ latex_report/
 latex_article/rendered/
 latex_article/rendered2/
 latex_article/rendered3/
+latex_article/rendered*/
+template_media/
+template_render/
+template_requirements.pdf
+latex_article/build_stdout.txt
 latex_article/main.aux
 latex_article/main.log
 latex_article/main.out

@@ -1,0 +1,11 @@
+{
+  "days": 290,
+  "cash_days": 290,
+  "zero_return_days": 290,
+  "strict_cash_wins": 290,
+  "min_cash_margin": 0.0009000000000000001,
+  "max_best_risky_score": -0.0015,
+  "initial_cash_score": -0.0006,
+  "gross_wealth": "1.000 for all days",
+  "accounting": "Stored return excludes transaction costs; score includes them. Initial reference action is 2; its one-off move to cash costs 0.0006 in the score but is not debited from stored wealth. Cash earns zero interest. Zero-volatility Sharpe is undefined; the legacy metrics helper stores 0 by numerical convention."
+}

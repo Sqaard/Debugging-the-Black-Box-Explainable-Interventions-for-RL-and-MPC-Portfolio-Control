@@ -1,0 +1,50 @@
+% Cover coordinates match the supplied Word template in PDF points on A4.
+\begin{titlepage}
+\thispagestyle{empty}
+\begin{tikzpicture}[remember picture,overlay,x=1bp,y=-1bp]
+\begin{scope}[shift={(current page.north west)}]
+  \draw[line width=0.5bp] (373.6,99.1) rectangle (524.4,196.7);
+  \draw[line width=0.5bp] (441.6,99.1) -- (441.6,196.7);
+  \draw[line width=0.5bp] (373.6,147.9) -- (524.4,147.9);
+  \node[anchor=north,inner sep=0,font=\coverfont\bfseries\fontsize{14}{17}\selectfont]
+       at (407.6,101) {Score:};
+  \node[anchor=north,inner sep=0,font=\coverfont\bfseries\fontsize{14}{17}\selectfont]
+       at (407.6,150) {Grader:};
+  \node[anchor=north,inner sep=0] at (297.66,196.94)
+       {\includegraphics[width=194.7bp,height=52.4bp]{figures/university_wordmark.png}};
+  \node[anchor=north,inner sep=0,font=\coverfont\bfseries\fontsize{22}{27}\selectfont\addfontfeatures{LetterSpace=9.09}]
+       at (297.66,251) {Machine Learning II Course Report};
+  \node[anchor=north west,inner sep=0,font=\coverfont\bfseries\fontsize{15}{18}\selectfont]
+       at (161.3,311) {Title:};
+  \node[anchor=north west,inner sep=0,text width=299bp,
+        font=\coverfont\bfseries\fontsize{14}{19}\selectfont,align=left]
+       at (211,310) {Debugging the Black Box:\\
+         Explainable Interventions for RL\\
+         and MPC Portfolio Control};
+  \node[anchor=north west,inner sep=0,font=\coverfont\bfseries\fontsize{12}{15}\selectfont]
+       at (165.5,378) {Student ID:};
+  \node[anchor=north west,inner sep=0,font=\coverfont\fontsize{12}{15}\selectfont]
+       at (230,378) {\underline{\makebox[147bp][l]{I202680256}}};
+  \node[anchor=north west,inner sep=0,font=\coverfont\bfseries\fontsize{12}{15}\selectfont]
+       at (165.5,410.5) {Name:};
+  \node[anchor=north west,inner sep=0,font=\coverfont\fontsize{12}{15}\selectfont]
+       at (207,410.5) {\underline{\makebox[200bp][l]{Ivan Pavliuk {\cjkfont 林伟}}}};
+  \node[anchor=north west,inner sep=0,font=\coverfont\bfseries\fontsize{12}{15}\selectfont]
+       at (165.5,443) {Major:};
+  \node[anchor=north west,inner sep=0,font=\coverfont\fontsize{12}{15}\selectfont]
+       at (207,443) {\underline{\makebox[267bp][l]{Big Data and Machine Learning}}};
+  \node[anchor=north west,inner sep=0,font=\coverfont\bfseries\fontsize{12}{15}\selectfont]
+       at (165.5,475.5) {Course Instructors:};
+  \node[anchor=north west,inner sep=0,font=\coverfont\fontsize{12}{15}\selectfont]
+       at (274,475.5) {\underline{\makebox[200bp][l]{{\cjkfont 朱力军，万一鸣}}}};
+  \node[anchor=north west,inner sep=0,font=\coverfont\bfseries\fontsize{12}{15}\selectfont]
+       at (165.5,508) {School / Department / Institute:};
+  \node[anchor=north west,inner sep=0,text width=310bp,align=left,
+        font=\coverfont\fontsize{12}{17}\selectfont]
+       at (165.5,530) {\underline{School of Artificial Intelligence and Innovation}};
+  \node[anchor=north,inner sep=0,font=\coverfont\bfseries\fontsize{14}{17}\selectfont]
+       at (297.66,580) {Month 11, Day 24, 2026};
+\end{scope}
+\end{tikzpicture}
+\null
+\end{titlepage}
