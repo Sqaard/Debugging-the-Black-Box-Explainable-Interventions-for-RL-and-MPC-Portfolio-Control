@@ -1,0 +1,18 @@
+{
+  "run_id": "xrl_mpc_extra_models_20261124",
+  "models": [
+    "ensemble_mpc",
+    "minimax_robust_mpc"
+  ],
+  "window_days": [
+    20,
+    60,
+    120
+  ],
+  "weights": "equal weights 1/3; fixed before validation and test",
+  "horizon": 5,
+  "risk_aversion": 8.0,
+  "turnover_cost": 0.0006,
+  "uncertainty_set": "causal rolling mean/covariance estimators with L=20,60,120",
+  "selection": "argmax over the same six action candidates; no weights fitted on validation"
+}

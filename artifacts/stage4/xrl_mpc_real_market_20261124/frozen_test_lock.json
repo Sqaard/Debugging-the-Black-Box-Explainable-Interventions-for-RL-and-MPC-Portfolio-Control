@@ -1,0 +1,14 @@
+{
+  "frozen_test": {
+    "train_start": "2010-01-04",
+    "train_end": "2017-12-29",
+    "validation_start": "2018-01-02",
+    "validation_end": "2021-12-31",
+    "frozen_test_start": "2022-01-03",
+    "frozen_test_end": "2023-02-28",
+    "outer_holdout_start": "2023-03-01",
+    "outer_holdout_end": "2026-07-07"
+  },
+  "target_primitive": 0,
+  "fit_only_on": "train; repair selected on validation"
+}

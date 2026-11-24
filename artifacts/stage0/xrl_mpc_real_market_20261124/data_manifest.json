@@ -1,0 +1,47 @@
+{
+  "run_id": "xrl_mpc_real_market_20261124",
+  "seed": 20261124,
+  "source_local": "C:\\Users\\ivanp\\RL for Time-Series Forecasting\\data_RLagent_for_Joseph\\data\\_dow_extended",
+  "source_remote_verified": "/home/vanya/projects/trustbench_stress_vanya/data/data_RLagent_for_Joseph/data/_dow_extended",
+  "features": [
+    "SPY",
+    "VIX",
+    "VIX3M",
+    "MOVE",
+    "HYG",
+    "LQD",
+    "STLFSI4",
+    "T10Y2Y"
+  ],
+  "assets": [
+    "SPY",
+    "TLT",
+    "HYG"
+  ],
+  "action_names": [
+    "cash",
+    "defensive",
+    "balanced",
+    "growth",
+    "equity",
+    "equity_bonds"
+  ],
+  "split": {
+    "train_start": "2010-01-04",
+    "train_end": "2017-12-29",
+    "validation_start": "2018-01-02",
+    "validation_end": "2021-12-31",
+    "frozen_test_start": "2022-01-03",
+    "frozen_test_end": "2023-02-28",
+    "outer_holdout_start": "2023-03-01",
+    "outer_holdout_end": "2026-07-07"
+  },
+  "rows": {
+    "all": 4201,
+    "train": 2013,
+    "validation": 1008,
+    "frozen_test": 290,
+    "outer_holdout": 841
+  },
+  "availability_note": "FRED/ALFRED values are forward-filled only after their observation date; no future asset returns enter state features."
+}

@@ -1,0 +1,59 @@
+{
+  "frozen_test_disagreement_rate": 0.14482758620689656,
+  "frozen_test_ensemble": {
+    "model": "MPC ensemble frozen_test",
+    "start": "2022-01-03",
+    "end": "2023-02-28",
+    "n_days": 290,
+    "annual_return": -0.06366298312347629,
+    "sharpe": -1.170871106692773,
+    "max_drawdown": -0.0771659134951036,
+    "hit_rate": 0.07586206896551724,
+    "mean_daily_return": -0.0002550180768028734,
+    "daily_vol": 0.0034574996700893076,
+    "turnover": 0.04741379310344827,
+    "final_wealth": 0.9270952353174997
+  },
+  "frozen_test_minimax": {
+    "model": "MPC minimax frozen_test",
+    "start": "2022-01-03",
+    "end": "2023-02-28",
+    "n_days": 290,
+    "annual_return": 0.0,
+    "sharpe": 0.0,
+    "max_drawdown": 0.0,
+    "hit_rate": 0.0,
+    "mean_daily_return": 0.0,
+    "daily_vol": 0.0,
+    "turnover": 0.0,
+    "final_wealth": 1.0
+  },
+  "outer_holdout_ensemble": {
+    "model": "MPC ensemble outer_holdout",
+    "start": "2023-03-01",
+    "end": "2026-07-07",
+    "n_days": 841,
+    "annual_return": 0.06872906190448491,
+    "sharpe": 0.8042980686017975,
+    "max_drawdown": -0.07439065159954972,
+    "hit_rate": 0.4173602853745541,
+    "mean_daily_return": 0.00027897626260405423,
+    "daily_vol": 0.00550618116258555,
+    "turnover": 0.061236623067776455,
+    "final_wealth": 1.248360308097974
+  },
+  "outer_holdout_minimax": {
+    "model": "MPC minimax outer_holdout",
+    "start": "2023-03-01",
+    "end": "2026-07-07",
+    "n_days": 841,
+    "annual_return": 0.03356275341767434,
+    "sharpe": 0.49464481561844903,
+    "max_drawdown": -0.11998747175631275,
+    "hit_rate": 0.29369797859690844,
+    "mean_daily_return": 0.00014130673850942983,
+    "daily_vol": 0.0045349205343277466,
+    "turnover": 0.07491082045184304,
+    "final_wealth": 1.1164682907718857
+  }
+}

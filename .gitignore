@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+rendered_report/
+rendered_report_word/
+short_note_images/
+latex_report/
+latex_article/rendered/
+latex_article/rendered2/
+latex_article/rendered3/
+latex_article/main.aux
+latex_article/main.log
+latex_article/main.out
+latex_article/main.fls
+latex_article/main.fdb_latexmk
+Explainable_RL_and_MPC_Report.docx
+Explainable_RL_and_MPC_Report_word.pdf

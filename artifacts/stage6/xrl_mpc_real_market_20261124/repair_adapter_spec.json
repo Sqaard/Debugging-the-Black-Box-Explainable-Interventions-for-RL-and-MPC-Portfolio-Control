@@ -1,0 +1,7 @@
+{
+  "target_primitive": 0,
+  "replacement_action": 0,
+  "replacement_name": "cash",
+  "rule": "apply only to the train-labeled stress overexposure primitive",
+  "dose": "one action remapping; frozen policy/Q table unchanged"
+}

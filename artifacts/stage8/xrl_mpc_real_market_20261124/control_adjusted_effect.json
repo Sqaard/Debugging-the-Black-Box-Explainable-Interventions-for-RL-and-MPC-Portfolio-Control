@@ -1,0 +1,9 @@
+{
+  "target_primitive": 0,
+  "baseline_sharpe": -0.6534128186665211,
+  "repaired_sharpe": -0.4597858678238267,
+  "random_control_mean_sharpe": -0.6742388465567056,
+  "control_adjusted_sharpe_lift": 0.21445297873287894,
+  "baseline_max_dd": -0.21709973603715704,
+  "repaired_max_dd": -0.14945019206089272
+}
